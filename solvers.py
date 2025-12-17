@@ -79,20 +79,6 @@ def hybrid_BA_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
             if k == 1:
                 lambdah = 0
             elif regparam == 'gcv':
-<<<<<<< Updated upstream
-                Q_A, R_A, _ = la.svd(H, full_matrices=False)
-                R_A = np.diag(R_A)
-                R_L = Identity(H.shape[1])
-                lambdah = generalized_crossvalidation(Q_A, R_A, R_L, (beta * e), **kwargs)
-
-            elif regparam == 'lcurve':
-                lambdah = lcurve(H, (e *beta))
-            # elif regparam == 'ncp':
-                 
-            #lambdah_values[k-1] = lambdah  # Keep track of all computed values
-            y = np.linalg.lstsq(np.vstack((H, np.sqrt(lambdah)*np.identity(H.shape[1], dtype = 'float32'))),
-                                np.vstack(( (beta * e).reshape(-1, 1), np.zeros((H.shape[1], 1), dtype = 'float32') )), rcond=None)[0]
-=======
                 I = Identity(H.shape[1])
                 lambdah = generalized_crossvalidation(U, np.diag(s), I, (beta * e), **kwargs)
             elif regparam == 'lcurve':
@@ -106,7 +92,6 @@ def hybrid_BA_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
             #Solve tikhonov regularized problem
             filt = s**2 / (s**2 + lambdah**2)
             y = Vt.T @ ( filt*(c/s))            
->>>>>>> Stashed changes
 
 
             # The solution x_k and its residual
@@ -232,18 +217,6 @@ def hybrid_AB_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
             if k == 1:
                 lambdah = 0
             elif regparam == 'gcv':
-<<<<<<< Updated upstream
-                Q_A, R_A, _ = la.svd(H, full_matrices=False)
-                R_A = np.diag(R_A)
-                R_L = Identity(H.shape[1])
-                lambdah = generalized_crossvalidation(Q_A, R_A, R_L, (beta * e), **kwargs)
-            elif regparam == 'lcurve':
-                lambdah = lcurve(H, (e *beta))
-                 
-            #lambdah_values[k-1] = lambdah  # Keep track of all computed values
-            y = np.linalg.lstsq(np.vstack((H, np.sqrt(lambdah)*np.identity(H.shape[1], dtype = 'float32'))),
-                                np.vstack(( (beta * e).reshape(-1, 1), np.zeros((H.shape[1], 1), dtype = 'float32') )), rcond=None)[0]
-=======
                 I = Identity(H.shape[1])
                 lambdah = generalized_crossvalidation(U, np.diag(s), I, (beta * e), **kwargs)
             elif regparam == 'lcurve':
@@ -252,7 +225,6 @@ def hybrid_AB_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
             
             filt = s**2 / (s**2 + lambdah**2)
             y = Vt.T @ ( filt*(c/s))             
->>>>>>> Stashed changes
 
             # The solution x_k and its residual
             Xp[:,k-1] = x0 + (B @ (W[:,:k] @ np.float32(y))).reshape(-1)
