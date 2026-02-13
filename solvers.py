@@ -1,14 +1,75 @@
 import numpy as np
-from scipy import linalg as la
 from trips.utilities.reg_param.gcv import *
-from trips.utilities.reg_param.l_curve import l_curve
 from pylops import Identity
 import time
-import GPUtil
 from utils import *
 
 def hybrid_BA_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve', stop_rule = 'no', tau = 1.02, x0 = 0, **kwargs):
-    
+    """
+    Hybrid BA–GMRES Solver
+    =======================
+
+    Solves the linear inverse problem
+
+        A x = b
+
+    using a *hybrid GMRES method* applied to the right-preconditioned system
+
+        B A x = B b
+
+    where B is typically a regularizing or approximate inverse operator.
+    The method builds Krylov subspaces of BA and computes a regularized
+    solution at each iteration using projected Tikhonov regularization.
+
+    --------------------------------------------------
+    PARAMETERS
+    --------------------------------------------------
+    A : ndarray or LinearOperator (m×n)
+        Foward projector.
+    B : ndarray or LinearOperator (n×m)
+        Back projector.
+    b : ndarray length m
+        Right-hand side vector.
+    iter : int
+        Maximum number of iterations.
+    m : int
+        Number of rows of A (data dimension).
+    n : int
+        Number of columns of A (unknown dimension).
+    num_angles : int
+        Number of angles from ct problem.
+    p : int, optional
+        Restart parameter.
+        p = 0 → no restart.
+    regparam : str, optional
+        Method for choosing regularization parameter:
+            "lcurve"  → L-curve criterion (default)
+            "gcv"     → generalized cross-validation
+            "dp"      → discrepancy principle
+    stop_rule : str, optional
+        Stopping criterion:
+            "dp"   → discrepancy principle
+            "ncp"  → normalized cumulative periodogram
+            "rns"  → relative norm stagnation
+    tau : float, optional
+        Safety factor used for discrepancy principle.
+    x0 : ndarray or scalar, optional
+        Initial guess. If not provided, zero vector is used.
+    --------------------------------------------------
+    RETURNS
+    --------------------------------------------------
+    X : ndarray (n × k)
+        Matrix whose columns contain all computed iterates:
+
+            X[:,j] = approximate solution at iteration j
+
+        where k ≤ iter depending on stopping rule.
+
+    R : ndarray (m × k-1)
+        Residual vectors:
+
+            R[:,j] = b − A X[:,j]
+    """
     
     start_time = time.time()
     print("\nHybrid-BA-GMRES is running")
@@ -16,7 +77,7 @@ def hybrid_BA_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
     delta = kwargs['delta'] if ('delta' in kwargs) else None
 
 
-    if (stop_rule == 'dp') and delta == None:
+    if (stop_rule == 'DP') and delta == None:
         raise Exception("A value for the noise level delta was not provided and the discrepancy principle cannot be applied.")
     
     # Check if GMRES should be restarted
@@ -39,7 +100,6 @@ def hybrid_BA_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
     Xp = np.zeros((n,p), dtype='float32')
     R = np.zeros((m,iter), dtype='float32')
 
-    lambdah_values = []
     residual = b - A @ x0
 
     for l in range(0,L):
@@ -83,11 +143,7 @@ def hybrid_BA_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
                 lambdah = generalized_crossvalidation(U, np.diag(s), I, (beta * e), **kwargs)
             elif regparam == 'lcurve':
                 lambdah = (lcurve(s, Vt, c))
-            # elif regparam == 'dp':
-            #     adj_delta = delta * np.sqrt(k/m)      
-            #     lambdah = discrepancy_principle(W[:,:k+1], H, Identity(H.shape[1], H.shape[1]), b.reshape(-1, 1), **kwargs)
             
-            lambdah_values.append(lambdah)
             
             #Solve tikhonov regularized problem
             filt = s**2 / (s**2 + lambdah**2)
@@ -130,7 +186,7 @@ def hybrid_BA_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
                 if l == 0 and k == 1:
                     res_old = cur_res
                 else:
-                    if cur_res > res_old or abs(res_old - cur_res)/res_old < 1e-2:  
+                    if abs(res_old - cur_res)/res_old < 1e-3:  
                         X[:,l*p+1:l*p+k+1] = Xp[:,:k]
                         X = X[:,:l*p + k+1]
                         R = R[:,:l*p + k]
@@ -151,6 +207,64 @@ def hybrid_BA_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
 
 
 def hybrid_AB_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve', stop_rule = 'no', tau = 1.02, x0 = 0, **kwargs):
+
+    """
+    Hybrid AB–GMRES Solver
+    =======================
+    Solves the linear inverse problem
+        A x = b
+    using a *hybrid GMRES method* applied to the right-preconditioned system
+        A B y = b
+        x = B y
+    where B is typically a regularizing or approximate inverse operator.
+    The method builds Krylov subspaces of BA and computes a regularized
+    solution at each iteration using projected Tikhonov regularization.
+    --------------------------------------------------
+    PARAMETERS
+    --------------------------------------------------
+    A : ndarray or LinearOperator (m×n)
+        Foward projector.
+    B : ndarray or LinearOperator (n×m)
+        Back projector.
+    b : ndarray length m
+        Right-hand side vector.
+    iter : int
+        Maximum number of iterations.
+    m : int
+        Number of rows of A (data dimension).
+    n : int
+        Number of columns of A (unknown dimension).
+    num_angles : int
+        Number of angles from ct problem.
+    p : int, optional
+        Restart parameter.
+        p = 0 → no restart.
+    regparam : str, optional
+        Method for choosing regularization parameter:
+            "lcurve"  → L-curve criterion (default)
+            "gcv"     → generalized cross-validation
+            "dp"      → discrepancy principle
+    stop_rule : str, optional
+        Stopping criterion:
+            "dp"   → discrepancy principle
+            "ncp"  → normalized cumulative periodogram
+            "rns"  → relative norm stagnation
+    tau : float, optional
+        Safety factor used for discrepancy principle.
+    x0 : ndarray or scalar, optional
+        Initial guess. If not provided, zero vector is used.
+    --------------------------------------------------
+    RETURNS
+    --------------------------------------------------
+    X : ndarray (n × k)
+        Matrix whose columns contain all computed iterates:
+            X[:,j] = approximate solution at iteration j
+        where k ≤ iter depending on stopping rule.
+    R : ndarray (m × k-1)
+        Residual vectors:
+            R[:,j] = b − A X[:,j]
+    """
+
     start_time = time.time()
     delta = kwargs['delta'] if ('delta' in kwargs) else None
 
@@ -166,7 +280,7 @@ def hybrid_AB_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
         p = iter
 
     # Check if a starting guess was provided
-    if ~isinstance(x0, np.ndarray):
+    if not isinstance(x0, np.ndarray):
         x0 = np.zeros((n,)).astype("float32")
     
     # Make sure p is a divisor of iter else change iter
@@ -180,7 +294,6 @@ def hybrid_AB_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
     R = np.zeros((m,iter), dtype='float32')
 
     r0 = b - A @ x0
-    lambdah_values = []
 
     for l in range(0,L):
         beta   = np.linalg.norm(r0) 
@@ -221,7 +334,6 @@ def hybrid_AB_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
                 lambdah = generalized_crossvalidation(U, np.diag(s), I, (beta * e), **kwargs)
             elif regparam == 'lcurve':
                 lambdah = (lcurve(s, Vt, c))     
-            lambdah_values.append(lambdah)  # Keep track of all computed values
             
             filt = s**2 / (s**2 + lambdah**2)
             y = Vt.T @ ( filt*(c/s))             
@@ -240,7 +352,7 @@ def hybrid_AB_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
                     end_time = time.time()
                     elapsed_time = end_time - start_time
                     print(f"Hybrid AB-GMRES execution time: {elapsed_time:.4f} seconds")
-                    return X, R, lambdah_values
+                    return X, R
             
             elif stop_rule == 'NCP':
                 Nk = NCP(R[:,k-1], m, num_angles)
@@ -254,7 +366,7 @@ def hybrid_AB_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
                         end_time = time.time()
                         elapsed_time = end_time - start_time
                         print(f"Hybrid AB-GMRES execution time: {elapsed_time:.4f} seconds")
-                        return X, R, lambdah_values
+                        return X, R
                     else:
                         Nk_old = Nk
             elif stop_rule == 'RNS':
@@ -262,14 +374,14 @@ def hybrid_AB_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
                 if l == 0 and k == 1:
                     res_old = cur_res
                 else:
-                    if cur_res > res_old or abs(res_old - cur_res)/res_old < 1e-2:  
+                    if cur_res > res_old or abs(res_old - cur_res)/res_old < 1e-3:  
                         X[:,l*p+1:l*p+k+1] = Xp[:,:k]
                         X = X[:,:l*p + k+1]
                         R = R[:,:l*p + k]
                         end_time = time.time()
                         elapsed_time = end_time - start_time
                         print(f"Hybrid AB-GMRES execution time: {elapsed_time:.4f} seconds")
-                        return X, R, lambdah_values
+                        return X, R
                     res_old = cur_res
 
         x0 = Xp[:,k-1]
@@ -280,175 +392,7 @@ def hybrid_AB_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
     elapsed_time = end_time - start_time
     print(f"Hybrid AB-GMRES execution time: {elapsed_time:.4f} seconds")
 
-    return X, R, lambdah_values
-def AB_lsqr(A, B, b, iter, m, n, num_angles, stop_rule = 'no', tau = 1.02, **kwargs) :
-    start_time = time.time()
-    delta = kwargs['delta'] if ('delta' in kwargs) else None
-
-    print("\nAB-lsqr is running")
-    
-    beta = np.linalg.norm(b)
-    u = b / beta
-    v = A @ (B @ u)
-    alpha = np.linalg.norm(v)
-    v = v / alpha
-    w = v.copy()
-    phi_bar = beta
-    rho_bar = alpha
-
-    X = np.zeros((n,iter+1), dtype='float32')
-    R = np.zeros((m,iter), dtype='float32')
-
-
-    for k in range(1, iter+1):
-        print("iteration", str(k), "out of",str(iter),end="\r")
-
-        u = A@(B@v) - alpha * u
-        beta = np.linalg.norm(u)
-        u = u / beta
-
-        v = A@(B@u) - beta * v
-        alpha = np.linalg.norm(v)
-        v = v / alpha
-        rho = np.sqrt(rho_bar**2 + beta**2)
-        c = rho_bar / rho
-        s = beta / rho 
-        theta = s*alpha
-        rho_bar = -c * alpha
-        phi = c * phi_bar
-        phi_bar = s * phi_bar
-        X[:,k] = X[:,k-1] + (B@((phi / rho)* w)).reshape(-1)
-        w = v - (theta/rho)*w
-        R[:,k-1] = b - A @ X[:,k-1]
-
-        if stop_rule == 'DP':
-                if np.linalg.norm(R[:,k-1]) <= tau*delta*np.sqrt(m):
-                    X = X[:,:k+1]
-                    R = R[:,:k]
-                    end_time = time.time()
-                    elapsed_time = end_time - start_time
-                    print(f"AB-LSQR execution time: {elapsed_time:.4f} seconds")
-                    return X, R
-            
-        elif stop_rule == 'NCP':
-                Nk = NCP(R[:,k-1], m, num_angles)
-                if k == 1:
-                    Nk_old = Nk
-                else:
-                    #print('different: ',(Nk_old - Nk))
-                    if (Nk_old - Nk) < 0:
-                        X = X[:,:k+1]
-                        R = R[:,:k]
-                        end_time = time.time()
-                        elapsed_time = end_time - start_time
-                        print(f"AB-LSQR execution time: {elapsed_time:.4f} seconds")
-                        return X, R
-                    else:
-                        Nk_old = Nk
-        elif stop_rule == 'RNS':
-                cur_res = np.linalg.norm(R[:,k-1])
-                if k == 1:
-                    res_old = cur_res
-                else:
-                    if cur_res > res_old or abs(res_old - cur_res)/res_old < 1e-4:  
-                        X = X[:,:k+1]
-                        R = R[:,:k]
-                        end_time = time.time()
-                        elapsed_time = end_time - start_time
-                        print(f"AB-LSQR execution time: {elapsed_time:.4f} seconds")
-                        return X, R
-                    res_old = cur_res
-    
-    end_time = time.time()
-    elapsed_time = end_time - start_time
-    print(f"AB_lsqr execution time: {elapsed_time:.4f} seconds")
-
     return X, R
-def BA_lsqr(A, B, b, iter, m, n, num_angles, stop_rule = 'no', tau = 1.02, **kwargs) :
-    
-    delta = kwargs['delta'] if ('delta' in kwargs) else None
-
-    start_time = time.time()
-    print("\nBA-lsqr is running")
-
-    
-    beta = np.linalg.norm(B@b)
-    u = B@b/beta
-
-    v = B@(A@u)
-    alpha = np.linalg.norm(v)
-    v = v / alpha
-
-    w = v
-    phi_bar = beta
-    rho_bar = alpha
-    
-    X = np.zeros((n,iter+1), dtype='float32')
-    R = np.zeros((m,iter), dtype='float32')
 
 
-    for k in range(1, iter+1):
-        print("iteration", str(k), "out of",str(iter),end="\r")
 
-        u = B@(A@v) - alpha * u
-        beta = np.linalg.norm(u)
-        u = u / beta
-
-        v = B@(A@u) - beta * v
-        alpha = np.linalg.norm(v)
-        v = v / alpha
-        rho = np.sqrt(rho_bar**2 + beta**2)
-        c = rho_bar / rho
-        s = beta / rho 
-        theta = s*alpha
-        rho_bar = -c * alpha
-        phi = c * phi_bar
-        phi_bar = s * phi_bar
-
-        X[:,k] = X[:,k-1] + ((phi / rho)* w).reshape(-1)
-        w = v - (theta/rho)*w
-        R[:,k-1] = b - A @ X[:,k-1]
-        if stop_rule == 'DP':
-                if np.linalg.norm(R[:,k-1]) <= tau*delta*np.sqrt(m):
-                    X = X[:,:k+1]
-                    R = R[:,:k]
-                    end_time = time.time()
-                    elapsed_time = end_time - start_time
-                    print(f"BA-LSQR execution time: {elapsed_time:.4f} seconds")
-
-                    return X, R
-            
-        elif stop_rule == 'NCP':
-                Nk = NCP(R[:,k-1], m, num_angles)
-                if k == 1:
-                    Nk_old = Nk
-                else:
-                    #print('different: ',(Nk_old - Nk))
-                    if (Nk_old - Nk) < 0:
-                        X = X[:,:k+1]
-                        R = R[:,:k]
-                        end_time = time.time()
-                        elapsed_time = end_time - start_time
-                        print(f"BA-LSQR execution time: {elapsed_time:.4f} seconds")
-                        return X, R
-                    else:
-                        Nk_old = Nk
-        elif stop_rule == 'RNS':
-                cur_res = np.linalg.norm(R[:,k-1])
-                if k == 1:
-                    res_old = cur_res
-                else:
-                    if cur_res > res_old or abs(res_old - cur_res)/res_old < 1e-4:  
-                        X = X[:,:k+1]
-                        R = R[:,:k]
-                        end_time = time.time()
-                        elapsed_time = end_time - start_time
-                        print(f"BA-LSQR execution time: {elapsed_time:.4f} seconds")
-                        return X, R
-                    res_old = cur_res
-
-    end_time = time.time()
-    elapsed_time = end_time - start_time
-    print(f"BA-LSQR execution time: {elapsed_time:.4f} seconds")
-
-    return X, R

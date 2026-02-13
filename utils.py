@@ -9,7 +9,7 @@ from scipy.optimize import root_scalar
 
 def curvature_function(lambdah, s, Vt, beta):
     """
-    Compute curvature function using precomputed SVD.
+    Compute lcurve curvature function using precomputed SVD.
     A = U diag(s) Vt
     beta = U.T @ b
     """
@@ -28,9 +28,9 @@ def curvature_function(lambdah, s, Vt, beta):
     rho = np.sum(((lambdah**2 / denom)**2) * (beta**2))
     # derivative y'(λ)
 
-    fprime = (-2*lambdah*s) / denom**2
-    yprime = (Vt.T * fprime) @ beta
-    epsilon_prime = 2 * np.dot(y, yprime)
+    z = Vt.T @ (-(lambdah**2 * s / (denom**2)) * beta)
+
+    epsilon_prime = (4.0 / lambdah) * np.dot(y, z)
 
     curve = ((2 * epsilon * rho) *
              ((lambdah**2) * epsilon_prime * rho +
